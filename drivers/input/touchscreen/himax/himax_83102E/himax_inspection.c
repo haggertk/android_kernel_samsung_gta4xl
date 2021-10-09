@@ -4802,7 +4802,7 @@ static void clear_cover_mode(void *dev_data)
 	case 0:
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 		I("%s: Sense on\n", __func__);
-		g_core_fp.fp_sense_on(0x01);
+		g_core_fp.fp_sense_on(0x00);
 		break;
 	case 3:
 		sec->cmd_state = SEC_CMD_STATUS_OK;
