@@ -2448,8 +2448,8 @@ int fimc_is_load_ddk_bin(int loadType)
 				memcpy((void *)lib_addr - CDH_SIZE, bin.data, bin.size);
 				__flush_dcache_area((void *)lib_addr - CDH_SIZE, bin.size);
 			} else {
-			memcpy((void *)lib_addr, bin.data + CDH_SIZE, bin.size - CDH_SIZE);
-			__flush_dcache_area((void *)lib_addr, bin.size - CDH_SIZE);
+				memcpy((void *)lib_addr, bin.data + CDH_SIZE, bin.size - CDH_SIZE);
+				__flush_dcache_area((void *)lib_addr, bin.size - CDH_SIZE);
 			}
 		} else {
 			err_lib("DDK bin size is bigger than memory area. %zd[%zd]",

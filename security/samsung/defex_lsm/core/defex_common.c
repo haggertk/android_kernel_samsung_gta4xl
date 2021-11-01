@@ -94,7 +94,7 @@ void init_defex_context(struct defex_context *dc, int syscall, struct task_struc
 {
 	const struct cred *cred_ptr;
 
-	memset(dc, 0, sizeof(struct defex_context) - sizeof(struct cred));
+	memset(dc, 0, offsetof(struct defex_context, cred));
 	if (!IS_ERR_OR_NULL(f)) {
 		get_file(f);
 		dc->target_file = f;
@@ -255,14 +255,20 @@ char *defex_get_filename(struct task_struct *p)
 	char *filename = NULL;
 
 	exe_file = defex_get_source_file(p);
-	if (!exe_file)
+	if (IS_ERR_OR_NULL(exe_file))
 		goto out_filename;
 
 	dpath = &exe_file->f_path;
+	if (!dpath->dentry || !dpath->dentry->d_inode) {
+		fput(exe_file);
+		goto out_filename;
+	}
+	path_get(dpath);
 
 	buff = kmalloc(PATH_MAX, GFP_KERNEL);
 	if (buff)
 		path = d_path(dpath, buff, PATH_MAX);
+	path_put(dpath);
 
 #ifndef DEFEX_CACHES_ENABLE
 	fput(exe_file);
