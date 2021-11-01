@@ -57,7 +57,7 @@ __visible_for_testing int __init verifiedboot_state_setup(char *str)
 
 __setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);
 
-int warranty_bit __ro_after_init;
+static int warranty_bit __ro_after_init;
 __visible_for_testing int __init get_warranty_bit(char *str)
 {
 	get_option(&str, &warranty_bit);
@@ -169,13 +169,22 @@ __visible_for_testing long kill_process_group(struct task_struct *p, int tgid, i
 __visible_for_testing int task_defex_is_secured(struct defex_context *dc)
 {
 	struct file *exe_file = get_dc_process_file(dc);
+	struct task_struct *p = dc->task->group_leader;
 	char *proc_name = get_dc_process_name(dc);
 	int is_secured = 1;
 
 	if (!get_dc_process_dpath(dc))
 		return is_secured;
 
-	is_secured = !rules_lookup2(proc_name, feature_ped_exception, exe_file);
+	if (!strncmp(p->comm, "system_server",  strlen(p->comm))) {
+		return DEFEX_ALLOW;
+	}
+
+	if (!strncmp(p->comm, "ding:background", strlen(p->comm))) {
+		return DEFEX_ALLOW;
+	}
+
+	is_secured = !rules_lookup(proc_name, feature_ped_exception, exe_file);
 	return is_secured;
 }
 
@@ -396,7 +405,7 @@ __visible_for_testing int task_defex_safeplace(struct defex_context *dc)
 		goto out;
 
 	new_file = get_dc_target_name(dc);
-	is_violation = rules_lookup2(new_file, feature_safeplace_path, dc->target_file);
+	is_violation = rules_lookup(new_file, feature_safeplace_path, dc->target_file);
 #ifdef DEFEX_INTEGRITY_ENABLE
 	if (is_violation != DEFEX_INTEGRITY_FAIL)
 #endif /* DEFEX_INTEGRITY_ENABLE */
@@ -447,7 +456,7 @@ __visible_for_testing int task_defex_src_exception(struct defex_context *dc)
 		return allow;
 
 	exe_file = get_dc_process_file(dc);
-	allow = rules_lookup2(proc_name, feature_immutable_src_exception, exe_file);
+	allow = rules_lookup(proc_name, feature_immutable_src_exception, exe_file);
 	return allow;
 }
 
@@ -462,7 +471,7 @@ __visible_for_testing int task_defex_immutable(struct defex_context *dc, int att
 		goto out;
 
 	new_file = get_dc_target_name(dc);
-	is_violation = rules_lookup2(new_file, attribute, dc->target_file);
+	is_violation = rules_lookup(new_file, attribute, dc->target_file);
 
 	if (is_violation) {
 		/* Check the Source exception and self-access */
@@ -616,7 +625,7 @@ int task_defex_user_exec(const char *new_file)
 		filp_close(fp, NULL);
 	}
 
-	is_violation = !rules_lookup2(new_file, feature_umhbin_path, NULL);
+	is_violation = !rules_lookup(new_file, feature_umhbin_path, NULL);
 	if (is_violation) {
 		printk("[DEFEX] UMH Exec Denied: %s\n", new_file);
 		goto umh_out;
