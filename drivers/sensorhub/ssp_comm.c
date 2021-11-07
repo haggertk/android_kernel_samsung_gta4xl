@@ -119,17 +119,21 @@ static int do_transfer(struct ssp_data *data, struct ssp_msg *msg, int timeout)
 		return -EINVAL;
 	}
 
-	status = sensorhub_comms_write(data, ssp_cmd_data, SSP_CMD_SIZE, timeout);
-
-	if (status < 0) {
-		ssp_errf("comm write fail!!");
-		goto exit;
-	}
-
 	if (msg->done != NULL) {
 		mutex_lock(&data->pending_mutex);
 		list_add_tail(&msg->list, &data->pending_list);
 		mutex_unlock(&data->pending_mutex);
+	}
+
+	status = sensorhub_comms_write(data, ssp_cmd_data, SSP_CMD_SIZE, timeout);
+
+	if (status < 0 && msg->done != NULL) {
+		ssp_errf("comm write fail!!");
+		mutex_lock(&data->pending_mutex);
+		list_del(&msg->list);
+		mutex_unlock(&data->pending_mutex);
+
+		goto exit;
 	}
 
 exit:

@@ -14,6 +14,7 @@
  */
 
 #include "himax_inspection.h"
+#include <linux/spu-verify.h>
 
 static int g_gap_vertical_partial = 4;
 static int *g_gap_vertical_part;
@@ -2464,11 +2465,14 @@ int hx_sensity_test(int *result)
 	return ret;
 }
 
+#define TSP_PATH_EXTERNAL_FW_SIGNED		"/sdcard/firmware/tsp/tsp_signed.bin"
 #define HIMAX_UMS_FW_PATH "/sdcard/Firmware/TSP/himax.fw"
+#define TSP_PATH_SPU_FW_SIGNED "/spu/TSP/ffu_tsp.bin"
 #define LEN_RSLT	128
 #define FACTORY_BUF_SIZE    PAGE_SIZE
 #define BUILT_IN            (0)
 #define UMS                 (1)
+#define SPU                 (3)
 
 #define TSP_NODE_DEBUG      (0)
 #define TSP_CM_DEBUG        (0)
@@ -2601,139 +2605,184 @@ static void get_chip_id(void *dev_data)
 			__func__, buf, (int)strnlen(buf, sizeof(buf)));
 }
 
-static void fw_update(void *dev_data)
+static int himax_fw_update_kernel(struct himax_ts_data *ts)
 {
 	int ret = 0;
-	char buf[LEN_RSLT] = { 0 };
 	char fw_path[MAX_FW_PATH + 1];
-	unsigned char *upgrade_fw = NULL;
-	struct file *filp = NULL;
-	mm_segment_t oldfs;
 	const struct firmware *firmware = NULL;
-	long fsize = 0;
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)dev_data;
-	/*struct himax_ts_data *data =
-		container_of(sec, struct himax_ts_data, sec);*/
 
-	sec_cmd_set_default_result(sec);
+	himax_int_enable(0);
 
-	I("%s %s(), %d\n", HIMAX_LOG_TAG,
-			__func__, sec->cmd_param[0]);
+	memset(fw_path, 0, MAX_FW_PATH);
+	snprintf(fw_path, MAX_FW_PATH, "%s", ts->pdata->i_CTPM_firmware_name);
 
-	switch (sec->cmd_param[0]) {
-	case BUILT_IN:
-		sec->cmd_state = SEC_CMD_STATUS_OK;
-#ifdef CONFIG_TOUCHSCREEN_HIMAX_DEBUG
-		fw_update_complete = false;
-#endif
-		himax_int_enable(0);
-		memset(fw_path, 0, MAX_FW_PATH);
-		snprintf(fw_path, MAX_FW_PATH, "%s",
-			private_ts->pdata->i_CTPM_firmware_name);
-		ret = request_firmware(&firmware, fw_path, private_ts->dev);
-		if (ret) {
-			E("%s %s: do not request firmware: %d name as=%s\n",
-					HIMAX_LOG_TAG, __func__, ret, fw_path);
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto FAIL_END;
-		}
-		switch (firmware->size) {
-		case FW_SIZE_32k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_32k(
-					(unsigned char *) firmware->data, firmware->size, false);
-			break;
-		case FW_SIZE_60k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_60k(
-					(unsigned char *) firmware->data, firmware->size, false);
-			break;
-		case FW_SIZE_64k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_64k(
-					(unsigned char *) firmware->data, firmware->size, false);
-			break;
-		case FW_SIZE_124k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_124k(
-					(unsigned char *) firmware->data, firmware->size, false);
-			break;
-		case FW_SIZE_128k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_128k(
-					(unsigned char *) firmware->data, firmware->size, false);
-			break;
-		default:
-			E("%s %s: does not support fw size %d\n",
-					HIMAX_LOG_TAG, __func__, (int)firmware->size);
-		}
-
-		if (ret == 0)
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-
-		release_firmware(firmware);
-		break;
-	case UMS:
-		sec->cmd_state = SEC_CMD_STATUS_OK;
-		himax_int_enable(0);
-
-		filp = filp_open(HIMAX_UMS_FW_PATH, O_RDONLY, S_IRUSR);
-		if (IS_ERR(filp)) {
-			E("%s %s: open firmware file failed\n",
-					HIMAX_LOG_TAG, __func__);
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			break;
-		}
-		oldfs = get_fs();
-		set_fs(KERNEL_DS);
-
-		fsize = filp->f_path.dentry->d_inode->i_size;
-		upgrade_fw =
-			kzalloc(sizeof(unsigned char) * fsize, GFP_KERNEL);
-
-		/* read the latest firmware binary file */
-		ret =
-			filp->f_op->read(filp, upgrade_fw,
-					sizeof(unsigned char) * fsize,
-					&filp->f_pos);
-		if (ret < 0) {
-			E("%s %s: read firmware file failed\n",
-					HIMAX_LOG_TAG, __func__);
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			break;
-		}
-		filp_close(filp, NULL);
-		set_fs(oldfs);
-
-		switch (fsize) {
-		case FW_SIZE_32k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_32k(
-						upgrade_fw, fsize, false);
-			break;
-		case FW_SIZE_60k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_60k(
-						upgrade_fw, fsize, false);
-			break;
-		case FW_SIZE_64k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_64k(
-						upgrade_fw, fsize, false);
-			break;
-		case FW_SIZE_124k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_124k(
-						upgrade_fw, fsize, false);
-			break;
-		case FW_SIZE_128k:
-			ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_128k(
-						upgrade_fw, fsize, false);
-			break;
-		default:
-			E("%s %s: does not support fw size %d\n",
-					HIMAX_LOG_TAG, __func__, (int)fsize);
-		}
-
-		if (ret == 0)
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		break;
-	default:
-		E("%s %s(), Invalid fw file type!\n", HIMAX_LOG_TAG,
-				__func__);
+	ret = request_firmware(&firmware, fw_path, ts->dev);
+	if (ret) {
+		E("%s %s: do not request firmware: %d name as=%s\n",
+				HIMAX_LOG_TAG, __func__, ret, fw_path);
 		goto FAIL_END;
 	}
+
+	switch (firmware->size) {
+	case FW_SIZE_32k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_32k(
+				(unsigned char *) firmware->data, firmware->size, false);
+		break;
+	case FW_SIZE_60k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_60k(
+				(unsigned char *) firmware->data, firmware->size, false);
+		break;
+	case FW_SIZE_64k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_64k(
+				(unsigned char *) firmware->data, firmware->size, false);
+		break;
+	case FW_SIZE_124k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_124k(
+				(unsigned char *) firmware->data, firmware->size, false);
+		break;
+	case FW_SIZE_128k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_128k(
+				(unsigned char *) firmware->data, firmware->size, false);
+		break;
+	default:
+		E("%s %s: does not support fw size %d\n",
+				HIMAX_LOG_TAG, __func__, (int)firmware->size);
+	}
+
+	if (ret == 0)
+		ret = FW_ERR_UPTODATE;
+	else
+		ret = FW_ERR_NONE;
+
+	release_firmware(firmware);
+
+	g_core_fp.fp_reload_disable(0);
+	g_core_fp.fp_read_FW_ver();
+	g_core_fp.fp_touch_information();
+#ifdef HX_RST_PIN_FUNC
+	g_core_fp.fp_ic_reset(true, false);
+#else
+	g_core_fp.fp_sense_on(0x00);
+#endif
+
+FAIL_END:
+	himax_int_enable(1);
+	return ret;
+}
+
+static int himax_fw_update_from_storage(bool signing, const char *file_path)
+{
+	int ret = 0;
+	struct file *filp = NULL;
+	unsigned char *upgrade_fw = NULL;
+	mm_segment_t oldfs;
+	long fsize, nread;
+	long spu_ret, spu_fw_size;
+
+	himax_int_enable(0);
+
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+	filp = filp_open(file_path, O_RDONLY, S_IRUSR);
+
+	if (IS_ERR(filp)) {
+		E("%s %s: open firmware file failed\n",
+				HIMAX_LOG_TAG, __func__);
+		ret = FW_ERR_FILE_OPEN;
+		set_fs(oldfs);
+		himax_int_enable(1);
+		return FW_ERR_FILE_OPEN;
+	}
+
+	fsize = filp->f_path.dentry->d_inode->i_size;
+
+	if (signing) {
+		spu_fw_size = fsize;
+		/* name 3, digest 32, signature 512 */
+		fsize -= SPU_METADATA_SIZE(TSP);
+	}
+
+	if (fsize > 0) {
+		unsigned char *spu_fw_data;
+
+		upgrade_fw = kzalloc(sizeof(unsigned char) * fsize, GFP_KERNEL);
+
+		if (signing) {
+			spu_fw_data = kzalloc(spu_fw_size, GFP_KERNEL);
+			nread = vfs_read(filp, (char __user *)spu_fw_data, spu_fw_size, &filp->f_pos);
+			I("%s - path [%s] size [%zu]\n",
+					__func__, file_path, spu_fw_size);
+
+			if (nread != spu_fw_size) {
+				I("%s [ERROR] vfs_read - size[%zu] read[%zu]\n",
+					__func__, fsize, nread);
+				ret = FW_ERR_FILE_READ;
+				kfree(spu_fw_data);
+				kfree(upgrade_fw);
+				goto FAIL_END;
+			}
+
+			spu_ret = spu_firmware_signature_verify("TSP", spu_fw_data, spu_fw_size);
+			I("%s: spu_ret : %ld, spu_fw_size:%ld\n", __func__, spu_ret, spu_fw_size);
+
+			if (spu_ret != fsize) {
+				I("%s: signature verify failed, %ld\n", __func__, spu_ret);
+				ret = FW_ERR_FILE_SIGN;
+				kfree(spu_fw_data);
+				kfree(upgrade_fw);
+				goto FAIL_END;
+			}
+
+			memcpy(upgrade_fw, spu_fw_data, fsize);
+			kfree(spu_fw_data);
+		} else {
+			nread = vfs_read(filp, (char __user *)upgrade_fw, fsize, &filp->f_pos);
+			I("%s - path [%s] size [%zu]\n", __func__, file_path, fsize);
+
+			if (nread != fsize) {
+				I("%s [ERROR] vfs_read - size[%zu] read[%zu]\n",
+					__func__, fsize, nread);
+				ret = FW_ERR_FILE_READ;
+				kfree(upgrade_fw);
+				goto FAIL_END;;
+			}
+		}
+	} else {
+		I("%s [ERROR] fsize [%zu]\n", __func__, fsize);
+		ret = FW_ERR_FILE_READ;
+		goto FAIL_END;
+	}
+
+	switch (fsize) {
+	case FW_SIZE_32k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_32k(
+					upgrade_fw, fsize, false);
+		break;
+	case FW_SIZE_60k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_60k(
+					upgrade_fw, fsize, false);
+		break;
+	case FW_SIZE_64k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_64k(
+					upgrade_fw, fsize, false);
+		break;
+	case FW_SIZE_124k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_124k(
+					upgrade_fw, fsize, false);
+		break;
+	case FW_SIZE_128k:
+		ret = g_core_fp.fp_fts_ctpm_fw_upgrade_with_sys_fs_128k(
+					upgrade_fw, fsize, false);
+		break;
+	default:
+		E("%s %s: does not support fw size %d\n",
+				HIMAX_LOG_TAG, __func__, (int)fsize);
+	}
+
+	if (ret == 0)
+		ret = FW_ERR_UPTODATE;
+	else
+		ret = FW_ERR_NONE;
 
 	if (upgrade_fw)
 		kfree(upgrade_fw);
@@ -2746,15 +2795,60 @@ static void fw_update(void *dev_data)
 #else
 	g_core_fp.fp_sense_on(0x00);
 #endif
+
 FAIL_END:
-	if (sec->cmd_state == SEC_CMD_STATUS_OK)
-		snprintf(buf, sizeof(buf), "%s", "OK");
-	else
-		snprintf(buf, sizeof(buf), "%s", "NG");
-	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
+	filp_close(filp, NULL);
+	set_fs(oldfs);
 	himax_int_enable(1);
-	I("%s %s: %s(%d)\n", HIMAX_LOG_TAG,
-			__func__, buf, (int)strnlen(buf, sizeof(buf)));
+	I("%s: DONE %d\n", __func__);
+	return ret;
+}
+
+static void fw_update(void *dev_data)
+{
+	int ret = 0;
+	char buf[LEN_RSLT] = { 0 };
+
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)dev_data;
+	struct himax_ts_data *ts =
+		container_of(sec, struct himax_ts_data, sec);
+
+	sec_cmd_set_default_result(sec);
+
+	I("%s %s(), %d\n", HIMAX_LOG_TAG,
+			__func__, sec->cmd_param[0]);
+
+	switch (sec->cmd_param[0]) {
+	case BUILT_IN:
+		ret = himax_fw_update_kernel(ts);
+		break;
+	case UMS:
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+		ret = himax_fw_update_from_storage(true, TSP_PATH_EXTERNAL_FW_SIGNED);
+#else
+		ret = himax_fw_update_from_storage(false, HIMAX_UMS_FW_PATH);
+#endif
+		break;
+	case SPU:
+		ret = himax_fw_update_from_storage(true, TSP_PATH_SPU_FW_SIGNED);
+		break;
+	default:
+		ret = -EINVAL;
+		I("%s not support cmd");
+		break;
+	}
+
+	if (ret == 0) {
+		sec->cmd_state = SEC_CMD_STATUS_OK;
+		snprintf(buf, sizeof(buf), "%s", "OK");
+	} else {
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		snprintf(buf, sizeof(buf), "%s", "NG");
+	}
+
+	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
+	I("%s %s: %s(%d) ret = %d\n", HIMAX_LOG_TAG,
+			__func__, buf, (int)strnlen(buf, sizeof(buf)), ret);
 }
 
 static void get_fw_ver_bin(void *dev_data)
@@ -4574,6 +4668,120 @@ static void aot_enable(void *dev_data)
 }
 #endif
 
+static int set_ap_change_mode(int mode, int enable)
+{
+	char tmp_addr[4] = {0xE8, 0x7F, 0x00, 0x10};
+	char send_data[4] = {0};
+	char recv_data[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+	char retry_cnt = 0;
+	int ret = 1;
+	switch (mode) {
+		case GAME_MODE:
+			tmp_addr[0] = 0xE0;
+			break;
+		case NOTE_MODE:
+			tmp_addr[0] = 0xE8;
+			break;
+		default:
+			I("%s: Invalid Mode\n", __func__);
+			return ret;
+	}
+
+	if (enable)
+		send_data[0] = 0x01;
+	else
+		send_data[0] = 0x00;
+	
+	do {
+		g_core_fp.fp_register_write(tmp_addr, DATA_LEN_4, send_data, 0);
+		usleep_range(1000, 1100);
+		g_core_fp.fp_register_read(tmp_addr, DATA_LEN_4, recv_data, 0);
+		retry_cnt++;
+	} while ((send_data[3] != recv_data[3] ||
+		send_data[2] != recv_data[2] ||
+		send_data[1] != recv_data[1] ||
+		send_data[0] != recv_data[0]) && retry_cnt < HIMAX_REG_RETRY_TIMES);
+
+	if (retry_cnt >= HIMAX_REG_RETRY_TIMES)
+		ret = 1;
+	else
+		ret = 0;
+
+	return ret;
+}
+
+static void set_game_mode(void *dev_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)dev_data;
+	char buf[16] = {0};
+	int ret = 0;
+
+	sec_cmd_set_default_result(sec);
+
+	switch (sec->cmd_param[0]) {
+		case 0:
+			I("%s: Unset Game Mode\n", __func__);
+			ret = set_ap_change_mode(GAME_MODE, 0);
+			break;
+		case 1:
+			I("%s: Set Game Mode\n", __func__);
+			ret = set_ap_change_mode(GAME_MODE, 1);
+			break;
+		default:
+			I("%s: Invalid Argument\n", __func__);
+			break;
+	}
+
+	if (ret) {
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		snprintf(buf, sizeof(buf), "NG");
+	} else {
+		sec->cmd_state = SEC_CMD_STATUS_OK;
+		snprintf(buf, sizeof(buf), "OK");
+	}
+
+	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
+	sec_cmd_set_cmd_exit(sec);
+
+	I("%s: %s\n", __func__, buf);
+}
+
+static void set_note_mode(void *dev_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)dev_data;
+	char buf[16] = {0};
+	int ret = 0;
+
+	sec_cmd_set_default_result(sec);
+
+	switch (sec->cmd_param[0]) {
+		case 0:
+			I("%s: Unset Note Mode\n", __func__);
+			ret = set_ap_change_mode(NOTE_MODE, 0);
+			break;
+		case 1:
+			I("%s: Set Note Mode\n", __func__);
+			ret = set_ap_change_mode(NOTE_MODE, 1);
+			break;
+		default:
+			I("%s: Invalid Argument\n", __func__);
+			break;
+	}
+
+	if (ret) {
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		snprintf(buf, sizeof(buf), "NG");
+	} else {
+		sec->cmd_state = SEC_CMD_STATUS_OK;
+		snprintf(buf, sizeof(buf), "OK");
+	}
+
+	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
+	sec_cmd_set_cmd_exit(sec);
+
+	I("%s: %s\n", __func__, buf);
+}
+
 /*
  * read_support_feature function
  * returns the bit combination of specific feature that is supported.
@@ -4678,6 +4886,8 @@ struct sec_cmd sec_cmds[] = {
 #ifdef HX_SMART_WAKEUP
 	{SEC_CMD("aot_enable", aot_enable),},
 #endif
+	{SEC_CMD("set_game_mode", set_game_mode),},
+	{SEC_CMD("set_note_mode", set_note_mode),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
 

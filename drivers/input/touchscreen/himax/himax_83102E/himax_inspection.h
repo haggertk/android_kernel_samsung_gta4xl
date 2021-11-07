@@ -37,6 +37,16 @@
 	extern u8 HX_ESD_RESET_ACTIVATE;
 #endif
 
+/* Firmware update error code */
+enum fw_update_errno {
+	FW_ERR_FILE_READ = -4,
+	FW_ERR_FILE_OPEN = -3,
+	FW_ERR_FILE_SIGN = -2,
+	FW_ERR_DOWNLOAD = -1,
+	FW_ERR_NONE = 0,
+	FW_ERR_UPTODATE = 1,
+};
+
 #define BS_RAWDATA	10
 #define BS_NOISE	100
 #define BS_OPENSHORT	0
@@ -119,6 +129,11 @@
 #define CHAR_NL	'\n'
 #define ACSII_SPACE	(0x20)
 /* INSOECTION Setting */
+
+enum AP_MODE {
+	GAME_MODE,
+	NOTE_MODE
+};
 
 void himax_inspection_init(void);
 extern int *g_test_item_flag;
