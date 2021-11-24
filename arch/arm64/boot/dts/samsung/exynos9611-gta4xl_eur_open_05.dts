@@ -3,7 +3,7 @@
 / {
 	compatible = "samsung,GTA4XL EUR OPEN 04A", "samsung,EXYNOS9611";
 	dtbo-hw_rev = <0x7>;
-	dtbo-hw_rev_end = <0xff>;
+	dtbo-hw_rev_end = <0x7>;
 
 	fragment@modemif {
 		target-path = [2f 00];
