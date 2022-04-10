@@ -16,6 +16,7 @@
 
 #include "five_hooks.h"
 #include "five_porting.h"
+#include "five_testing.h"
 
 #include <linux/fs.h>
 #include <linux/slab.h>
@@ -294,6 +295,7 @@ int five_hook_wq_init(void)
 	return 0;
 }
 
+__mockable
 void five_hook_integrity_reset(struct task_struct *task,
 			       struct file *file,
 			       enum task_integrity_reset_cause cause)
