@@ -239,6 +239,9 @@ bool FAKE_POWER_KEY_SEND = true;
 	struct proc_dir_entry *himax_proc_HSEN_file = NULL;
 #endif
 
+bool himax_epen_mode = false;
+EXPORT_SYMBOL(himax_epen_mode);
+
 #if defined(HX_PALM_REPORT)
 static int himax_palm_detect(uint8_t *buf)
 {
@@ -2384,6 +2387,8 @@ static void himax_finger_report(struct himax_ts_data *ts)
 	int i = 0;
 	bool valid = false;
 
+	if (himax_epen_mode)
+		return;
 
 	if (g_ts_dbg != 0) {
 		I("%s:start\n", __func__);
@@ -3293,6 +3298,8 @@ int himax_pinctrl_configure(struct himax_ts_data *ts, bool active)
 
 int himax_chip_common_suspend(struct himax_ts_data *ts)
 {
+	I("%s : START lp:%d cover:%d\n", __func__, ts->SMWP_enable, ts->cover_closed);
+
 	if (ts->suspended) {
 		I("%s: Already suspended. Skipped.\n", __func__);
 		goto END;
@@ -3381,7 +3388,7 @@ int himax_chip_common_resume(struct himax_ts_data *ts)
 #if defined(HX_ZERO_FLASH) && defined(HX_RESUME_SET_FW)
 	int result = 0;
 #endif
-	I("%s: enter\n", __func__);
+	I("%s : START lp:%d cover:%d\n", __func__, ts->SMWP_enable, ts->cover_closed);
 
 	if (ts->suspended == false) {
 		I("%s: It had entered resume, skip this step\n", __func__);

@@ -62,7 +62,7 @@
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 #include <linux/stackprotector.h>
-unsigned long __stack_chk_guard __read_mostly;
+unsigned long __stack_chk_guard __ro_after_init;
 EXPORT_SYMBOL(__stack_chk_guard);
 #endif
 
@@ -209,7 +209,7 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 		}
 	}
 
-	printk("\n%s: %#lx:\n", name, addr);
+	printk("\n%s: %pS:\n", name, addr);
 
 	/*
 	 * round address down to a 32 bit boundary
@@ -329,6 +329,17 @@ void show_regs(struct pt_regs * regs)
 	__show_regs(regs);
 	dump_backtrace(regs, NULL);
 }
+
+#ifdef CONFIG_SEC_DEBUG_AUTO_COMMENT
+void show_regs_auto_comment(struct pt_regs * regs, bool comm)
+{
+	__show_regs(regs);
+	if (comm)
+		dump_backtrace_auto_summary(regs, NULL);
+	else
+		dump_backtrace(regs, NULL);
+}
+#endif
 
 static void tls_thread_flush(void)
 {

@@ -992,7 +992,7 @@ int kernel_read_file_from_fd(int fd, void **buf, loff_t *size, loff_t max_size,
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
 
-	if (!f.file)
+	if (!f.file || !(f.file->f_mode & FMODE_READ))
 		goto out;
 
 	ret = kernel_read_file(f.file, buf, size, max_size, id);
@@ -1269,12 +1269,15 @@ void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 	perf_event_comm(tsk, exec);
 }
 
-#ifdef CONFIG_RKP_NS_PROT
-extern struct super_block *sys_sb;	/* pointer to superblock */
-extern struct super_block *odm_sb;	/* pointer to superblock */
-extern struct super_block *vendor_sb;	/* pointer to superblock */
-extern struct super_block *rootfs_sb;	/* pointer to superblock */
-extern struct super_block *art_sb;	/* pointer to superblock */
+#if 0 /* def CONFIG_RKP_NS_PROT */
+extern struct super_block *rootfs_sb;
+extern struct super_block *sys_sb;
+extern struct super_block *vendor_sb;
+extern struct super_block *product_sb;
+extern struct super_block *art_sb;
+extern struct super_block *crypt_sb;
+extern struct super_block *adbd_sb;
+extern struct super_block *runtime_sb;
 extern int is_recovery;
 extern int __check_verifiedboot;
 
@@ -1356,9 +1359,9 @@ int flush_old_exec(struct linux_binprm * bprm)
 	 * Release all of the old mmap stuff
 	 */
 	acct_arg_size(bprm, 0);
-#ifdef CONFIG_RKP_NS_PROT
-	if(rkp_cred_enable &&
-		is_rkp_priv_task() && 
+#if 0 /* def CONFIG_RKP_NS_PROT */
+	if (rkp_cred_enable &&
+		is_rkp_priv_task() &&
 		invalid_drive(bprm)) {
 		panic("\n KDP_NS_PROT: Illegal Execution of file #%s#\n", bprm->filename);
 	}
@@ -1915,6 +1918,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 		goto out_unmark;
 
 	bprm->argc = count(argv, MAX_ARG_STRINGS);
+	if (bprm->argc == 0)
+		pr_warn_once("process '%s' launched '%s' with NULL argv: empty string added\n",
+			     current->comm, bprm->filename);
 	if ((retval = bprm->argc) < 0)
 		goto out;
 
@@ -1938,6 +1944,20 @@ static int do_execveat_common(int fd, struct filename *filename,
 	retval = copy_strings(bprm->argc, argv, bprm);
 	if (retval < 0)
 		goto out;
+
+	/*
+	 * When argv is empty, add an empty string ("") as argv[0] to
+	 * ensure confused userspace programs that start processing
+	 * from argv[1] won't end up walking envp. See also
+	 * bprm_stack_limits().
+	 */
+	if (bprm->argc == 0) {
+		const char *argv[] = { "", NULL };
+		retval = copy_strings_kernel(1, argv, bprm);
+		if (retval < 0)
+			goto out;
+		bprm->argc = 1;
+	}
 
 	retval = exec_binprm(bprm);
 	if (retval < 0)

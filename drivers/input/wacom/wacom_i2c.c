@@ -1272,7 +1272,7 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 	}
 
 #ifdef CONFIG_TOUCHSCREEN_HIMAX_SPI
-	himax_int_enable(!wac_i2c->pen_prox && !wac_i2c->pen_pressed);
+	himax_epen_mode = wac_i2c->pen_prox || wac_i2c->pen_pressed;
 #endif
 
 	return 0;

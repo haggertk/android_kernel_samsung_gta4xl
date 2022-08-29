@@ -486,7 +486,7 @@ static u8 encode_bMaxPower(enum usb_device_speed speed,
 {
 	unsigned val;
 
-	if (c->MaxPower)
+	if (c->MaxPower || (c->bmAttributes & USB_CONFIG_ATT_SELFPOWER))
 		val = c->MaxPower;
 	else
 		val = CONFIG_USB_GADGET_VBUS_DRAW;
@@ -966,7 +966,11 @@ static int set_config(struct usb_composite_dev *cdev,
 	}
 
 	/* when we return, be sure our power usage is valid */
-	power = c->MaxPower ? c->MaxPower : CONFIG_USB_GADGET_VBUS_DRAW;
+	if (c->MaxPower || (c->bmAttributes & USB_CONFIG_ATT_SELFPOWER))
+		power = c->MaxPower;
+	else
+		power = CONFIG_USB_GADGET_VBUS_DRAW;
+
 	if (gadget->speed < USB_SPEED_SUPER)
 		power = min(power, 500U);
 	else
@@ -1161,7 +1165,7 @@ static void collect_langs(struct usb_gadget_strings **sp, __le16 *buf)
 	while (*sp) {
 		s = *sp;
 		language = cpu_to_le16(s->language);
-		for (tmp = buf; *tmp && tmp < &buf[126]; tmp++) {
+		for (tmp = buf; *tmp && tmp < &buf[USB_MAX_STRING_LEN]; tmp++) {
 			if (*tmp == language)
 				goto repeat;
 		}
@@ -1244,7 +1248,7 @@ static int get_string(struct usb_composite_dev *cdev,
 			collect_langs(sp, s->wData);
 		}
 
-		for (len = 0; len <= 126 && s->wData[len]; len++)
+		for (len = 0; len <= USB_MAX_STRING_LEN && s->wData[len]; len++)
 			continue;
 		if (!len)
 			return -EINVAL;
@@ -1728,6 +1732,18 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	struct usb_function		*f = NULL;
 	u8				endp;
 
+	if (w_length > USB_COMP_EP0_BUFSIZ) {
+		if (ctrl->bRequestType & USB_DIR_IN) {
+			/* Cast away the const, we are going to overwrite on purpose. */
+			__le16 *temp = (__le16 *)&ctrl->wLength;
+
+			*temp = cpu_to_le16(USB_COMP_EP0_BUFSIZ);
+			w_length = USB_COMP_EP0_BUFSIZ;
+		} else {
+			goto done;
+		}
+	}
+
 	/* partial re-init of the response message; the function or the
 	 * gadget might need to intercept e.g. a control-OUT completion
 	 * when we delegate to it.
@@ -2034,6 +2050,9 @@ unknown:
 				if (w_index != 0x5 || (w_value >> 8))
 					break;
 				interface = w_value & 0xFF;
+				if (interface >= MAX_CONFIG_INTERFACES ||
+				    !os_desc_cfg->interface[interface])
+					break;
 				buf[6] = w_index;
 				if (w_length == 0x0A) {
 					count = count_ext_prop(os_desc_cfg,
@@ -2312,7 +2331,7 @@ int composite_dev_prepare(struct usb_composite_driver *composite,
 	if (!cdev->req)
 		return -ENOMEM;
 
-	cdev->req->buf = kmalloc(USB_COMP_EP0_BUFSIZ, GFP_KERNEL);
+	cdev->req->buf = kzalloc(USB_COMP_EP0_BUFSIZ, GFP_KERNEL);
 	if (!cdev->req->buf)
 		goto fail;
 
@@ -2461,22 +2480,27 @@ fail:
 
 void composite_suspend(struct usb_gadget *gadget)
 {
-	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
+	struct usb_composite_dev	*cdev = NULL;
 	struct usb_function		*f;
-#if defined(CONFIG_USB_NOTIFY_LAYER)
-	struct otg_notify *o_notify = get_otg_notify();
-	int ret;
+	unsigned long			flags;
 
-	ret = get_usb_mode(o_notify);
-	if (ret == NOTIFY_NONE_MODE) {
-		pr_info("usb: skip_suspend %s\n", __func__);
-		goto skip_suspend;
-	}
-#endif
 	/* REVISIT:  should we have config level
 	 * suspend/resume callbacks?
 	 */
+
+	if (gadget == NULL) {
+		pr_info("%s: gadget is NULL\n", __func__);
+		return;
+	}
+
+	cdev = get_gadget_data(gadget);
+	if (!cdev) {
+		pr_info("%s: cdev is NULL\n", __func__);
+		return;
+	}
 	DBG(cdev, "suspend\n");
+
+	spin_lock_irqsave(&cdev->lock, flags);
 	if (cdev->config) {
 		list_for_each_entry(f, &cdev->config->functions, list) {
 			if (f->suspend)
@@ -2485,9 +2509,9 @@ void composite_suspend(struct usb_gadget *gadget)
 	}
 	if (cdev->driver->suspend)
 		cdev->driver->suspend(cdev);
-#if defined(CONFIG_USB_NOTIFY_LAYER)
-skip_suspend:
-#endif
+
+	spin_unlock_irqrestore(&cdev->lock, flags);
+
 	cdev->suspended = 1;
 
 	usb_gadget_set_selfpowered(gadget);

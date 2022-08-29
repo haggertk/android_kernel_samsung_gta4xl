@@ -778,7 +778,8 @@ static void __setattr_copy(struct inode *inode, const struct iattr *attr)
 	if (ia_valid & ATTR_MODE) {
 		umode_t mode = attr->ia_mode;
 
-		if (!in_group_p(inode->i_gid) && !capable(CAP_FSETID))
+		if (!in_group_p(inode->i_gid) &&
+			!capable_wrt_inode_uidgid(inode, CAP_FSETID))
 			mode &= ~S_ISGID;
 		set_acl_inode(inode, mode);
 	}
@@ -2443,6 +2444,9 @@ static int f2fs_move_file_range(struct file *file_in, loff_t pos_in,
 
 	if (f2fs_encrypted_inode(src) || f2fs_encrypted_inode(dst))
 		return -EOPNOTSUPP;
+
+	if (pos_out < 0 || pos_in < 0)
+		return -EINVAL;
 
 	if (src == dst) {
 		if (pos_in == pos_out)

@@ -555,7 +555,6 @@ static void __init mm_init(void)
 rkp_init_t rkp_init_data __rkp_ro = {
 	.magic = RKP_INIT_MAGIC,
 	.vmalloc_start = VMALLOC_START,
-	.no_fimc_verify = 1, // Temporarily disabling FIMC signature verification - Must be 0
 	.fimc_phys_addr = 0,
 	._text = (u64)_text,
 	._etext = (u64)_etext,
@@ -576,7 +575,7 @@ static void __init rkp_init(void)
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 	rkp_init_data.tramp_pgd = (u64)__pa(tramp_pg_dir);
 #endif
-#ifdef CONFIG_UH_RKP_FIMC_CHECK
+#ifndef CONFIG_UH_RKP_FIMC_CHECK
 	rkp_init_data.no_fimc_verify = 1;
 #endif
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
@@ -680,13 +679,6 @@ asmlinkage __visible void __init start_kernel(void)
 	rkp_robuffer_init();
 #endif
 	setup_arch(&command_line);
-	/*
-	 * Set up the the initial canary and entropy after arch
-	 * and after adding latent and command line entropy.
-	 */
-	add_latent_entropy();
-	add_device_randomness(command_line, strlen(command_line));
-	boot_init_stack_canary();
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
@@ -771,6 +763,17 @@ asmlinkage __visible void __init start_kernel(void)
 	softirq_init();
 	timekeeping_init();
 	time_init();
+
+	/*
+	 * For best initial stack canary entropy, prepare it after:
+	 * - setup_arch() for any UEFI RNG entropy and boot cmdline access
+	 * - timekeeping_init() for ktime entropy used in random_init()
+	 * - time_init() for making random_get_entropy() work on some platforms
+	 * - random_init() to initialize the RNG from from early entropy sources
+	 */
+	random_init(command_line);
+	boot_init_stack_canary();
+
 	sched_clock_postinit();
 	printk_safe_init();
 	perf_event_init();
@@ -909,7 +912,7 @@ static int __init initcall_blacklist(char *str)
 		}
 	} while (str_entry);
 
-	return 0;
+	return 1;
 }
 
 static bool __init_or_module initcall_blacklisted(initcall_t fn)
@@ -1168,7 +1171,9 @@ static noinline void __init kernel_init_freeable(void);
 bool rodata_enabled __ro_after_init = true;
 static int __init set_debug_rodata(char *str)
 {
-	return strtobool(str, &rodata_enabled);
+	if (strtobool(str, &rodata_enabled))
+		pr_warn("Invalid option string for rodata: '%s'\n", str);
+	return 1;
 }
 __setup("rodata=", set_debug_rodata);
 #endif
@@ -1275,7 +1280,7 @@ static noinline void __init kernel_init_freeable(void)
 	 */
 	set_mems_allowed(node_states[N_MEMORY]);
 
-	cad_pid = task_pid(current);
+	cad_pid = get_pid(task_pid(current));
 
 	smp_prepare_cpus(setup_max_cpus);
 

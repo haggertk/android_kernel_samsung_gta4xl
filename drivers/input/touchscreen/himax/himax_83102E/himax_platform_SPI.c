@@ -359,18 +359,20 @@ void himax_int_enable(int enable)
 	unsigned long irqflags = 0;
 	int irqnum = ts->hx_irq;
 
-	if (enable != atomic_read(&ts->irq_state)) {
-		spin_lock_irqsave(&ts->irq_lock, irqflags);
-		I("%s: Entering! irqnum = %d\n", __func__, irqnum);
-		atomic_set(&ts->irq_state, enable);
-
-		enable ? enable_irq(irqnum) : disable_irq_nosync(irqnum);
-
-		private_ts->irq_enabled = enable;
-
-		I("%s, %d\n", __func__, enable);
-		spin_unlock_irqrestore(&ts->irq_lock, irqflags);
+	spin_lock_irqsave(&ts->irq_lock, irqflags);
+	I("%s: Entering! irqnum = %d\n", __func__, irqnum);
+	if (enable == 1 && atomic_read(&ts->irq_state) == 0) {
+		atomic_set(&ts->irq_state, 1);
+		enable_irq(irqnum);
+		private_ts->irq_enabled = 1;
+	} else if (enable == 0 && atomic_read(&ts->irq_state) == 1) {
+		atomic_set(&ts->irq_state, 0);
+		disable_irq_nosync(irqnum);
+		private_ts->irq_enabled = 0;
 	}
+
+	I("%s, %d\n", __func__, enable);
+	spin_unlock_irqrestore(&ts->irq_lock, irqflags);
 }
 EXPORT_SYMBOL(himax_int_enable);
 
@@ -943,11 +945,14 @@ int fb_notifier_callback(struct notifier_block *self,
 	I(" %s event: %x, blank: %d\n", __func__, event, blank);
 
 	if (evdata && evdata->data && ts != NULL && ts->dev != NULL) {
-		if (event == FB_EARLY_EVENT_BLANK &&
-			blank == FB_BLANK_POWERDOWN) {
+		if (event == FB_EARLY_EVENT_BLANK && blank == FB_BLANK_POWERDOWN) {
 			himax_common_suspend(ts->dev);
-		} else if (event == FB_EVENT_BLANK &&
-				blank == FB_BLANK_UNBLANK) {
+		} else if(event == FB_EVENT_BLANK && blank == FB_BLANK_POWERDOWN) {
+			if (ts->SMWP_enable && ts->cover_closed) {
+				msleep(20);
+				himax_set_cover_mode(ts, ts->cover_closed);
+			}
+		} else if (event == FB_EVENT_BLANK && blank == FB_BLANK_UNBLANK) {
 			himax_common_resume(ts->dev);
 		}
 	}

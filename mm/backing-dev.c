@@ -146,8 +146,15 @@ static ssize_t read_ahead_kb_store(struct device *dev,
 	struct backing_dev_info *bdi = dev_get_drvdata(dev);
 	unsigned long read_ahead_kb;
 	ssize_t ret;
+	static const char temp[] = "temporary ";
+
+	if (strncmp(buf, temp, sizeof(temp) - 1) != 0)
+		return count;
+
+	buf += sizeof(temp) - 1;
 
 	ret = kstrtoul(buf, 10, &read_ahead_kb);
+
 	if (ret < 0)
 		return ret;
 
@@ -314,8 +321,8 @@ static int __init default_bdi_init(void)
 {
 	int err;
 
-	bdi_wq = alloc_workqueue("writeback", WQ_MEM_RECLAIM | WQ_FREEZABLE |
-					      WQ_UNBOUND | WQ_SYSFS, 0);
+	bdi_wq = alloc_workqueue("writeback", WQ_MEM_RECLAIM | WQ_UNBOUND |
+				 WQ_SYSFS, 0);
 	if (!bdi_wq)
 		return -ENOMEM;
 
@@ -1031,6 +1038,13 @@ void bdi_unregister(struct backing_dev_info *bdi)
 	bdi_remove_from_list(bdi);
 	wb_shutdown(&bdi->wb);
 	cgwb_bdi_unregister(bdi);
+
+	/*
+	 * If this BDI's min ratio has been set, use bdi_set_min_ratio() to
+	 * update the global bdi_min_ratio.
+	 */
+	if (bdi->min_ratio)
+		bdi_set_min_ratio(bdi, 0);
 
 	if (bdi->dev) {
 		bdi_debug_unregister(bdi);

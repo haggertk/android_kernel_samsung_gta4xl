@@ -1178,10 +1178,13 @@ static void f2fs_umount_end(struct super_block *sb, int flags)
 	if ((flags & MNT_FORCE) || atomic_read(&sb->s_active) > 1) {
 		/* to write the latest kbytes_written */
 		if (!(sb->s_flags & MS_RDONLY)) {
+			struct f2fs_sb_info *sbi = F2FS_SB(sb);
 			struct cp_control cpc = {
 				.reason = CP_UMOUNT,
 			};
+			mutex_lock(&sbi->gc_mutex);
 			f2fs_write_checkpoint(F2FS_SB(sb), &cpc);
+			mutex_unlock(&sbi->gc_mutex);
 		}
 	}
 }
@@ -3865,4 +3868,5 @@ module_exit(exit_f2fs_fs)
 MODULE_AUTHOR("Samsung Electronics's Praesto Team");
 MODULE_DESCRIPTION("Flash Friendly File System");
 MODULE_LICENSE("GPL");
+MODULE_SOFTDEP("pre: crc32");
 

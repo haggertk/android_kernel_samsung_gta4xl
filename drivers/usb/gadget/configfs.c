@@ -190,24 +190,25 @@ int dwc3_gadget_get_cmply_link_state_wrapper(void)
 EXPORT_SYMBOL(dwc3_gadget_get_cmply_link_state_wrapper);
 #endif
 
+#define USB_MAX_STRING_WITH_NULL_LEN	(USB_MAX_STRING_LEN+1)
+
 static int usb_string_copy(const char *s, char **s_copy)
 {
 	int ret;
 	char *str;
 	char *copy = *s_copy;
 	ret = strlen(s);
-	if (ret > MAX_USB_STRING_LEN)
+	if (ret > USB_MAX_STRING_LEN)
 		return -EOVERFLOW;
 
 	if (copy) {
 		str = copy;
 	} else {
-		str = kmalloc(MAX_USB_STRING_WITH_NULL_LEN, GFP_KERNEL);
+		str = kmalloc(USB_MAX_STRING_WITH_NULL_LEN, GFP_KERNEL);
 		if (!str)
 			return -ENOMEM;
 	}
-	strncpy(str, s, MAX_USB_STRING_WITH_NULL_LEN);
-
+	strcpy(str, s);
 	if (str[ret - 1] == '\n')
 		str[ret - 1] = '\0';
 	*s_copy = str;
@@ -1806,6 +1807,8 @@ static void configfs_composite_unbind(struct usb_gadget *gadget)
 	usb_ep_autoconfig_reset(cdev->gadget);
 	spin_lock_irqsave(&gi->spinlock, flags);
 	cdev->gadget = NULL;
+	cdev->deactivations = 0;
+	gadget->deactivated = false;
 	set_gadget_data(gadget, NULL);
 	spin_unlock_irqrestore(&gi->spinlock, flags);
 }
@@ -2125,6 +2128,14 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 	if (enabled && !dev->enabled) {
 		pr_info("usb: %s: Connect gadget: enabled=%d, dev->enabled=%d\n",
 				__func__, enabled, dev->enabled);
+
+	if (!dev->composite.gadget_driver.udc_name) {
+		pr_info("usb: %s: UDC is NULL\n", __func__);
+		dev->enabled = true;
+		mutex_unlock(&dev->lock);
+		return -ENODEV;
+	}
+
 #ifdef CONFIG_USB_NOTIFY_PROC_LOG
 		store_usblog_notify(NOTIFY_USBMODE_EXTRA, "enable 1", NULL);
 #endif
